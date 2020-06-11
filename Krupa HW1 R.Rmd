@@ -1,0 +1,829 @@
+---
+title: "FE 621 Homework 1"
+author: "Brendon Krupa"
+date: "2/13/2020"
+output: word_document
+---
+
+# Part 1
+
+
+
+## 1. Data Gathering Component
+
+
+```{r}
+library(quantmod)
+library(jsonlite)
+library(dplyr)
+get_option <- function(symbol,date){
+  
+  ## Finding the end of the 3 month period
+  get_3m_unix <- function(date){
+    date <- as.Date(date)
+    date <- date+months(3)
+    date <- nth_weekday(5,date,3)
+    expiry <- difftime(date,as.Date('1970-01-01'),units='secs')
+    return(expiry)
+  }
+  
+  #to format JSON data
+  reformat_table <- function(x){
+    if(is.null(x) || length(x) < 1)
+      return(NULL)
+    # reformat col names
+    names(x) <- tolower(gsub("[[:space:]]", "", names(x)))
+    # assigning the new col names
+    # Vol=volume, OI=openinterest,
+    d <- with(x, data.frame(Strike=strike, Last=lastprice, Chg=change,
+                            Bid=bid, Ask=ask,
+                            row.names=contractsymbol, stringsAsFactors=FALSE))
+    # removing commas from the data
+    d[] <- lapply(d, gsub, pattern=",", replacement="", fixed=TRUE)
+    d[] <- lapply(d, type.convert, as.is=TRUE)
+    d
+ }
+  
+  #gets calls and puts for one expiry
+  get_option_data <- function(symbol,expiry){
+    # url for scraping Yahoo Finance for options data using JSON
+    base <- "https://query2.finance.yahoo.com/v7/finance/options/"
+    url <- paste(base,symbol,"?date=",expiry,sep='')
+    result <- fromJSON(url)
+    #creates table
+    tbl <- lapply(result$optionChain$result$options[[1]][,c('calls','puts')],'[[',1L)
+    calls <- mapply(reformat_table,x=tbl,SIMPLIFY=F)$calls
+    # assign dates
+    calls['Expiry'] <- as.Date(as.POSIXct(expiry, origin="1970-01-01"), origin="1970-01-01")
+    puts <- mapply(reformat_table,x=tbl,SIMPLIFY=F)$puts
+    puts['Expiry'] <- calls['Expiry']
+    return(list(calls,puts))
+  }
+  # calling all helper functions to pull chains for all expirations in next 3 months
+  date <- as.Date(date)
+  expiry <- as.Date("2020-04-16")
+  base <- "https://query2.finance.yahoo.com/v7/finance/options/"
+  url <- paste(base,symbol,"?date=",expiry,sep='')
+  result <- fromJSON(url)
+  underlying <- result$optionChain$result$quote
+  # finding all expirations for a given underlying
+  available.expiries <- result$optionChain$result$expirationDates
+  # filtering to those that are within the period defined above as 3 months
+  expiries <- available.expiries[[1]][available.expiries[[1]] <= expiry]
+  if(length(expiries)==0)
+    {expiries<-available.expiries[[1]][1]}
+  calls <- do.call(rbind,lapply(expiries,
+                                function(x) get_option_data(symbol,x)[[1]]))
+  calls['date'] <- date
+  puts <- do.call(rbind,lapply(expiries,
+                               function(x) get_option_data(symbol,x)[[2]]))
+  puts['date'] <- date
+  return(list('symbol'=symbol,'exDates'=unique(calls['Expiry']),
+              'underlyingP'=underlying,
+              'calls'=calls,'puts'=puts))
+}
+```
+
+
+## 2. Downloading Data for AMZN, SPY, and VIX
+
+
+```{r}
+# Sampling Put and Call Data for first day: Feb 10, 2020
+#VIX1 <- get_option("^VIX", date = Sys.Date())
+#SPY1 <- get_option("SPY", date = Sys.Date())
+#AMZN1 <- get_option("AMZN", date = Sys.Date())
+```
+
+```{r}
+# Sampling Put and Call Data for second day: Feb 11, 2020
+#VIX2 <- get_option("^VIX", date = Sys.Date())
+#SPY2 <- get_option("SPY", date = Sys.Date())
+#AMZN2 <- get_option("AMZN", date = Sys.Date())
+```
+
+
+Commented out because as I explained to Professor Florescu I had some issues where I lost the data on friday and had to use Bloomberg data instead. The Bloomberg data is pulled for February 13 and 14.
+
+```{r}
+setwd("/Users/Brendon/Documents/FE 621/HW 1")
+AMZNCall1 <- read.csv("AMZN Calls 2-13.csv")
+AMZNCall2 <- read.csv("AMZN Calls 2-14.csv")
+AMZNPut1 <- read.csv("AMZN Puts 2-13.csv")
+AMZNPut2 <- read.csv("AMZN Puts 2-14.csv")
+SPYCall1 <- read.csv("SPY Calls 2-13.csv")
+SPYCall2 <- read.csv("SPY Calls 2-14.csv")
+SPYPut1 <- read.csv("SPY Puts 2-13.csv")
+SPYPut2 <- read.csv("SPY Puts 2-14.csv")
+VIXCall1 <- read.csv("VIX Calls 2-13.csv")
+VIXCall2 <- read.csv("VIX Calls 2-14.csv")
+VIXPut1 <- read.csv("VIX Puts 2-13.csv")
+VIXPut2 <- read.csv("VIX Puts 2-14.csv")
+```
+
+
+At the time of downloading the data on 2/14 AMZN was at 2132.27, SPY was 336.69, and the VIX was at 14.30 and the 2/13 data is taken at close with AMZN at 2149.87, SPY at 337.06, and the VIX was 14.15
+
+
+## 3. Description of the Assets
+
+  Each of the three underlying assets are unique with AMZN being the simplest as an equity of Amazon. SPY is the symbol for the SPDR S&P 500 ETF, which is a passive investment vehicle that is designed to track the movements of the entire market. This allows investors to gain exposure to the market as a whole without having to invest in every constituent or apply portfolio optimization to develop an asset allocation strategy to design a portfolio that tracks the market. The VIX is the symbol for the CBOE Volatility Index, which measures volatility in the S&P 500 in the coming 30 days. The VIX is an important indicator of investor sentiment as analyzing the activity of derivatives on this index can prove to be powerful in measuring how investors feel about market conditions and their expectations for the future. All three symbols are major assets with a multitude of derivatives that trade off of them with varying expirations and strike prices.
+  
+
+## 4. Interest Rate
+  
+I will be using the 6 Month Treasury Bill rate of 1.52%
+
+
+# Part 2
+
+
+
+## 5. Black-Scholes Implementation
+
+
+```{r}
+r <- .0152
+BSMprice <- function(S0,K,T,r,sigma,opt='c'){
+  d1 <- (1/(sigma*sqrt(T)))*(log(S0/K)+(r+.5*sigma^2)*T)
+  d2 <- d1 - sigma*sqrt(T)
+  # If Call
+  if(opt == "c"){
+    return(S0*pnorm(d1)-K*exp(-r*T)*pnorm(d2))
+  }
+  # Put
+  else{
+    return(K*exp(-r*T)*pnorm(-d2)-S0*pnorm(-d1))
+  }
+}
+BSMprice(100,105,1,r,.15)
+BSMprice(100,105,1,r,.15,"p")
+```
+
+
+## 6. Bisection Method for Calculating Implied Volatility
+
+
+```{r}
+bisection <- function(f,a,b,tol=10^-6){
+  c <- (a+b)/2
+  #while < tolerance and max iterations hasn't been reached
+  while(abs(b-a)>tol){
+    if(f(c)==0){return(c)}
+    if(f(a)*f(c) < 0){
+      b <- c
+    }
+    else{
+      a <- c
+    }
+    c <- (a+b)/2
+  }
+  ifelse(abs(c)<.0000001,return(NA),return(c))
+}
+paste('Bisection:',round(bisection(function(x) cos(x),-1,2),3), "Check if answer is within the tolerance: ", round(cos(bisection(function(x) cos(x),-1,2)),7))
+```
+
+
+```{r}
+# Cleaning expiration dates to calculate time to maturity
+library(lubridate)
+library(DataCombine)
+add_year <- function(x){
+  if (year(x) < 2000){
+    year(x) <- 2020
+    return(as.Date(x))
+  }
+  return(as.Date(x))
+}
+temp <- as.Date(sapply(SPYCall1$Ticker, function(x) paste(substr(toString(x), 5,11), "20", sep = "")), "%m/%d/%Y")
+SPYCall1$Exp <- temp
+SPYCall1 <- DropNA(SPYCall1, Var = "Exp")
+SPYCall1$Exp <- as.Date(sapply(SPYCall1$Exp, add_year))
+SPYCall1$Date <- as.Date("02/13/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(SPYCall2$Ticker, function(x) paste(substr(toString(x), 5,11), "20", sep = "")), "%m/%d/%Y")
+SPYCall2$Exp <- temp
+SPYCall2 <- DropNA(SPYCall2, Var = "Exp")
+SPYCall2$Exp <- as.Date(sapply(SPYCall2$Exp, add_year))
+SPYCall2$Date <- as.Date("02/14/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(SPYPut1$Ticker, function(x) paste(substr(toString(x), 5,11), "20", sep = "")), "%m/%d/%Y")
+SPYPut1$Exp <- temp
+SPYPut1 <- DropNA(SPYPut1, Var = "Exp")
+SPYPut1$Exp <- as.Date(sapply(SPYPut1$Exp, add_year))
+SPYPut1$Date <- as.Date("02/13/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(SPYPut2$Ticker, function(x) paste(substr(toString(x), 5,11), "20", sep = "")), "%m/%d/%Y")
+SPYPut2$Exp <- temp
+SPYPut2 <- DropNA(SPYPut2, Var = "Exp")
+SPYPut2$Exp <- as.Date(sapply(SPYPut2$Exp, add_year))
+SPYPut2$Date <- as.Date("02/14/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(AMZNCall1$Ticker, function(x) paste(substr(toString(x), 6,12), "20", sep = "")), "%m/%d/%Y")
+AMZNCall1$Exp <- temp
+AMZNCall1 <- DropNA(AMZNCall1, Var = "Exp")
+AMZNCall1$Exp <- as.Date(sapply(AMZNCall1$Exp, add_year))
+AMZNCall1$Date <- as.Date("02/13/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(AMZNCall2$Ticker, function(x) paste(substr(toString(x), 6,12), "20", sep = "")), "%m/%d/%Y")
+AMZNCall2$Exp <- temp
+AMZNCall2 <- DropNA(AMZNCall2, Var = "Exp")
+AMZNCall2$Exp <- as.Date(sapply(AMZNCall2$Exp, add_year))
+AMZNCall2$Date <- as.Date("02/14/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(AMZNPut1$Ticker, function(x) paste(substr(toString(x), 6,12), "20", sep = "")), "%m/%d/%Y")
+AMZNPut1$Exp <- temp
+AMZNPut1 <- DropNA(AMZNPut1, Var = "Exp")
+AMZNPut1$Exp <- as.Date(sapply(AMZNPut1$Exp, add_year))
+AMZNPut1$Date <- as.Date("02/13/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(AMZNPut2$Ticker, function(x) paste(substr(toString(x), 6,12), "20", sep = "")), "%m/%d/%Y")
+AMZNPut2$Exp <- temp
+AMZNPut2 <- DropNA(AMZNPut2, Var = "Exp")
+AMZNPut2$Exp <- as.Date(sapply(AMZNPut2$Exp, add_year))
+AMZNPut2$Date <- as.Date("02/14/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(VIXCall1$Ticker, function(x) paste(substr(toString(x), 5,11), "20", sep = "")), "%m/%d/%Y")
+VIXCall1$Exp <- temp
+VIXCall1 <- DropNA(VIXCall1, Var = "Exp")
+VIXCall1$Exp <- as.Date(sapply(VIXCall1$Exp, add_year))
+VIXCall1$Date <- as.Date("02/13/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(VIXCall2$Ticker, function(x) paste(substr(toString(x), 5,11), "20", sep = "")), "%m/%d/%Y")
+VIXCall2$Exp <- temp
+VIXCall2 <- DropNA(VIXCall2, Var = "Exp")
+VIXCall2$Exp <- as.Date(sapply(VIXCall2$Exp, add_year))
+VIXCall2$Date <- as.Date("02/14/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(VIXPut1$Ticker, function(x) paste(substr(toString(x), 5,11), "20", sep = "")), "%m/%d/%Y")
+VIXPut1$Exp <- temp
+VIXPut1 <- DropNA(VIXPut1, Var = "Exp")
+VIXPut1$Exp <- as.Date(sapply(VIXPut1$Exp, add_year))
+VIXPut1$Date <- as.Date("02/13/2020", '%m/%d/%Y')
+
+temp <- as.Date(sapply(VIXPut2$Ticker, function(x) paste(substr(toString(x), 5,11), "20", sep = "")), "%m/%d/%Y")
+VIXPut2$Exp <- temp
+VIXPut2 <- DropNA(VIXPut2, Var = "Exp")
+VIXPut2$Exp <- as.Date(sapply(VIXPut2$Exp, add_year))
+VIXPut2$Date <- as.Date("02/14/2020", '%m/%d/%Y')
+```
+
+
+### Applying to DATA1 (at the money)
+
+```{r}
+# First for the most at the money option
+# AMZN Price = 2149.87, closest strike is 2150 
+# SPY = 337.06, closest strike is 335
+AMZN2150 <- AMZNCall1[AMZNCall1$Strike==2150,1:9][4,1:9]
+AMZN_C1 <- (AMZN2150[1,3] + AMZN2150[1,4])/2
+AMZN_S0 <- 2149.87
+AMZN_K <- AMZN2150[1,1]
+AMZN_T <- as.numeric(AMZN2150[1,8] - AMZN2150[1,9])/365
+AMZN_ATM <- bisection(function(x) BSMprice(AMZN_S0,AMZN_K,AMZN_T,r,x) - AMZN_C1, 0, 1)
+
+SPY335 <- as.vector(SPYCall1[SPYCall1$Strike==335,1:9][4,1:9])
+SPY_C1 <- (SPY335[1,3] + SPY335[1,4])/2
+SPY_S0 <- 337.06
+SPY_K <- 335
+SPY_T <- as.numeric(SPY335[1,8] - SPY335[1,9])/365
+SPY_ATM <- bisection(function(x) BSMprice(SPY_S0,SPY_K,SPY_T,r,x) - SPY_C1, 0, 1)
+
+print(paste("AMZN at the money implied volatility: ", round(AMZN_ATM*100, 2), "%; SPY at the money implied volatility: ", round(SPY_ATM*100, 2), "%", sep = ""))
+```
+
+
+### Applying to DATA1 (in-the-money and out-of-the-money average)
+
+```{r}
+# AMZN in-the-money defined as S0/K > 1.05
+AMZN_in <- AMZNCall1[2149.87/AMZNCall1$Strike > 1.05, c(1,3,4,8,9)]
+AMZN_in$C1 <- (AMZN_in$Bid + AMZN_in$Ask)/2
+AMZN_in$S0 <- 2149.87
+AMZN_in$T <- as.numeric(AMZN_in$Exp - AMZN_in$Date)/365
+#AMZN_in$IV <- bisection(function(x) BSMprice(AMZN_in$S0,AMZN_in$Strike,AMZN_in$T,r,x) - AMZN_in$C1, 0, 1)
+AMZN_IV_in <- c()
+for (i in seq(1,nrow(AMZN_in))) {
+  temp <- bisection(function(x) BSMprice(AMZN_in$S0[i],AMZN_in$Strike[i],AMZN_in$T[i],r,x) - AMZN_in$C1[i], 0, 2)
+  AMZN_IV_in <- c(AMZN_IV_in, temp)
+}
+AMZN_in$IV <- AMZN_IV_in
+head(AMZN_in)
+print("About 30% of the data maxed out the bisection function suggesting an implied volatility greater than 200% the data frame below filters out such options")
+head(AMZN_in[AMZN_in$IV < 1.999, 1:9])
+print(paste("Therefore the mean in-the-money Implied Volatility is ", round(mean(AMZN_in[AMZN_in$IV < 1.9999, 9])*100,2), "%", sep = ""))
+```
+
+
+```{r}
+# AMZN out-of-the-money defined as S0/K < .95
+AMZN_out <- AMZNCall1[2149.87/AMZNCall1$Strike < .95, c(1,3,4,8,9)]
+AMZN_out$C1 <- (AMZN_out$Bid + AMZN_out$Ask)/2
+AMZN_out$S0 <- 2149.87
+AMZN_out$T <- as.numeric(AMZN_out$Exp - AMZN_out$Date)/365
+AMZN_IV_out <- c()
+for (i in seq(1,nrow(AMZN_out))) {
+  temp <- bisection(function(x) BSMprice(AMZN_out$S0[i],AMZN_out$Strike[i],AMZN_out$T[i],r,x) - AMZN_out$C1[i], 0, 2)
+  AMZN_IV_out <- c(AMZN_IV_out, temp)
+}
+AMZN_out$IV <- AMZN_IV_out
+head(AMZN_out)
+print(paste("The maximum Implied Volatility for AMZN out-of-the-money is 137% so all data is included yielding a mean Implied Volatility of ", round(mean(AMZN_out$IV)*100,2), "%", sep = ""))
+```
+
+
+```{r}
+# SPY in-the-money defined as S0/K > 1.05
+SPY_in <- SPYCall1[337.06/SPYCall1$Strike > 1.05, c(1,3,4,8,9)]
+SPY_in$C1 <- (SPY_in$Bid + SPY_in$Ask)/2
+SPY_in$S0 <- 337.06
+SPY_in$T <- as.numeric(SPY_in$Exp - SPY_in$Date)/365
+SPY_IV_in <- c()
+for (i in seq(1,nrow(SPY_in))) {
+  temp <- bisection(function(x) BSMprice(SPY_in$S0[i],SPY_in$Strike[i],SPY_in$T[i],r,x) - SPY_in$C1[i], 0, 2)
+  SPY_IV_in <- c(SPY_IV_in, temp)
+}
+SPY_in$IV <- SPY_IV_in
+head(SPY_in)
+print(paste("Again I filtered out the values greater than 1.999; however with this set that only represents less than 1% of the data so it is not nearly as significant. The filtered data is below:"))
+head(SPY_in[SPY_in$IV < 1.999,1:9])
+print(paste("This yields a mean in-the-money Implied Volatility for the SPY of ", round(mean(SPY_in[SPY_in$IV < 1.999,1:9]$IV)*100,2), "%", sep = ""))
+```
+
+
+```{r}
+# SPY out-of-the-money defined as S0/K < .95
+SPY_out <- SPYCall1[337.06/SPYCall1$Strike < .95, c(1,3,4,8,9)]
+SPY_out$C1 <- (SPY_out$Bid + SPY_out$Ask)/2
+SPY_out$S0 <- 337.06
+SPY_out$T <- as.numeric(SPY_out$Exp - SPY_out$Date)/365
+SPY_IV_out <- c()
+for (i in seq(1,nrow(SPY_out))) {
+  temp <- bisection(function(x) BSMprice(SPY_out$S0[i],SPY_out$Strike[i],SPY_out$T[i],r,x) - SPY_out$C1[i], 0, 2)
+  SPY_IV_out <- c(SPY_IV_out, temp)
+}
+SPY_out$IV <- SPY_IV_out
+head(SPY_out)
+print(paste("The mean out-of-the-money Implied Volatility for the SPY is ", round(mean(SPY_out$IV)*100,2), "%, and I acknowledge that this value should be greater and have checked my results several times to find the same answer. The previous three mean implied volatilities are consistent with a volatility smirk with the in-the-money options being greater than the at the money options and less than the out of money options with respect to average implied vol.", sep = ""))
+```
+
+
+## 7. Implementation of Newton/Secant Methods
+
+
+```{r}
+# Vega function for option's derivative with respect to volatility
+Vega <- function(S0,K,T,r,sigma){
+  d1 <- (1/(sigma*sqrt(T)))*(log(S0/K)+(r+.5*sigma^2)*T)
+  return(S0*dnorm(d1)*sqrt(T))
+}
+
+#Newton implementation
+newton <- function(f,df,a,tol=10^-6){
+  b <- a - f(a)/df(a)
+  if(is.infinite(b) | is.na(b)){
+    return(NA)
+  }
+  while(abs(b-a)/abs(a)>tol & abs(f(a))>tol){
+    a <- b
+    b <- a - f(a)/df(a)
+    if(is.infinite(b) | is.na(b)){
+      return(NA)
+    }
+  }
+  return(b)
+}
+
+# Testing with at the money options
+AMZN_ATM <- bisection(function(x) BSMprice(AMZN_S0,AMZN_K,AMZN_T,r,x) - AMZN_C1, 0, 1)
+SPY_ATM <- bisection(function(x) BSMprice(SPY_S0,SPY_K,SPY_T,r,x) - SPY_C1, 0, 1)
+
+AMZN_ATM2 <- newton(function(x) BSMprice(AMZN_S0,AMZN_K,AMZN_T,r,x) - AMZN_C1, function(x) Vega(AMZN_S0,AMZN_K,AMZN_T,r,x), -.3)
+SPY_ATM2 <- newton(function(x) BSMprice(SPY_S0,SPY_K,SPY_T,r,x) - SPY_C1, function(x) Vega(SPY_S0,SPY_K,SPY_T,r,x), -.3)
+
+print(paste("As expected, both values are the same as those yielded from the bisection method with AMZN at ", round(AMZN_ATM2*100,2), "%, and the SPY at ", round(SPY_ATM2*100,2), "%", sep = ""))
+```
+
+### Timing Bisection Method vs Newton Method
+
+```{r}
+# Bisect AMZN in-the-money
+time_start1 <- proc.time()
+AMZN_IV_in <- c()
+for (i in seq(1,nrow(AMZN_in))) {
+  temp <- bisection(function(x) BSMprice(AMZN_in$S0[i],AMZN_in$Strike[i],AMZN_in$T[i],r,x) - AMZN_in$C1[i], 0, 2)
+  AMZN_IV_in <- c(AMZN_IV_in, temp)
+}
+bisect_time <- proc.time() - time_start1
+bisect_time
+
+# Newton AMZN in-the-money
+time_start2 <- proc.time()
+AMZN_IV_in2 <- c()
+for (i in seq(1,nrow(AMZN_in))) {
+  f <- function(x) {return(BSMprice(AMZN_in$S0[i],AMZN_in$Strike[i],AMZN_in$T[i],r,x) - AMZN_in$C1[i])}
+  df <- function(x) {return(Vega(AMZN_in$S0[i],AMZN_in$Strike[i],AMZN_in$T[i],r,x))}
+  temp <- newton(f, df, -.3)
+  AMZN_IV_in2 <- c(AMZN_IV_in2, temp)
+}
+newton_time <- proc.time() - time_start2
+newton_time
+
+print(paste("For AMZN in-the-money the bisection method took ", round(bisect_time[3],3), " seconds whereas the Newton method required only ", round(newton_time[3],3), " seconds. After removing the data that yielded NA for the Newton method, each method yielded a mean implied volatility of ", round(mean(AMZN_IV_in2[!is.na(AMZN_IV_in2)])*100,2), "%", sep = ""))
+```
+
+
+```{r}
+# Bisect SPY in-the-money
+time_start1 <- proc.time()
+SPY_IV_in <- c()
+for (i in seq(1,nrow(SPY_in))) {
+  temp <- bisection(function(x) BSMprice(SPY_in$S0[i],SPY_in$Strike[i],SPY_in$T[i],r,x) - SPY_in$C1[i], 0, 2)
+  SPY_IV_in <- c(SPY_IV_in, temp)
+}
+bisect_time <- proc.time() - time_start1
+bisect_time
+
+# Newton SPY in-the-money
+time_start2 <- proc.time()
+SPY_IV_in2 <- c()
+for (i in seq(1,nrow(SPY_in))) {
+  f <- function(x) {return(BSMprice(SPY_in$S0[i],SPY_in$Strike[i],SPY_in$T[i],r,x) - SPY_in$C1[i])}
+  df <- function(x) {return(Vega(SPY_in$S0[i],SPY_in$Strike[i],SPY_in$T[i],r,x))}
+  temp <- newton(f, df, -.3)
+  SPY_IV_in2 <- c(SPY_IV_in2, temp)
+}
+newton_time <- proc.time() - time_start2
+newton_time
+
+print(paste("For the SPY in-the-money options the bisection method took ", round(bisect_time[3],3), " seconds whereas the Newton method required only ", round(newton_time[3],3), " seconds. After removing the data that yielded NA for the Newton method, each method yielded a mean implied volatility of ", round(mean(SPY_IV_in2[!is.na(SPY_IV_in2)])*100,2), "%", sep = ""))
+```
+
+
+```{r}
+# Bisect AMZN out-of-the-money
+time_start1 <- proc.time()
+AMZN_IV_out <- c()
+for (i in seq(1,nrow(AMZN_out))) {
+  temp <- bisection(function(x) BSMprice(AMZN_out$S0[i],AMZN_out$Strike[i],AMZN_out$T[i],r,x) - AMZN_out$C1[i], 0, 2)
+  AMZN_IV_out <- c(AMZN_IV_out, temp)
+}
+bisect_time <- proc.time() - time_start1
+bisect_time
+
+# Newton AMZN in-the-money
+time_start2 <- proc.time()
+AMZN_IV_out2 <- c()
+for (i in seq(1,nrow(AMZN_out))) {
+  f <- function(x) {return(BSMprice(AMZN_out$S0[i],AMZN_out$Strike[i],AMZN_out$T[i],r,x) - AMZN_out$C1[i])}
+  df <- function(x) {return(Vega(AMZN_out$S0[i],AMZN_out$Strike[i],AMZN_out$T[i],r,x))}
+  temp <- newton(f, df, -.3)
+  AMZN_IV_out2 <- c(AMZN_IV_out2, temp)
+}
+newton_time <- proc.time() - time_start2
+newton_time
+
+print(paste("For AMZN out-of-the-money options the bisection method took ", round(bisect_time[3],3), " seconds whereas the Newton method required only ", round(newton_time[3],3), " seconds. After removing the data that yielded NA for the Newton method, each method yielded a mean implied volatility of ", round(mean(AMZN_IV_out2[!is.na(AMZN_IV_out2)])*100,2), "%", sep = ""))
+```
+
+
+```{r}
+# Bisect SPY out-of-the-money
+time_start1 <- proc.time()
+SPY_IV_out <- c()
+for (i in seq(1,nrow(SPY_out))) {
+  temp <- bisection(function(x) BSMprice(SPY_out$S0[i],SPY_out$Strike[i],SPY_out$T[i],r,x) - SPY_out$C1[i], 0, 2)
+  SPY_IV_out <- c(SPY_IV_out, temp)
+}
+bisect_time <- proc.time() - time_start1
+bisect_time
+
+# Newton SPY in-the-money
+time_start2 <- proc.time()
+SPY_IV_out2 <- c()
+for (i in seq(1,nrow(SPY_out))) {
+  f <- function(x) {return(BSMprice(SPY_out$S0[i],SPY_out$Strike[i],SPY_out$T[i],r,x) - SPY_out$C1[i])}
+  df <- function(x) {return(Vega(SPY_out$S0[i],SPY_out$Strike[i],SPY_out$T[i],r,x))}
+  temp <- newton(f, df, -.3)
+  SPY_IV_out2 <- c(SPY_IV_out2, temp)
+}
+newton_time <- proc.time() - time_start2
+newton_time
+
+print(paste("For SPY out-of-the-money options the bisection method took ", round(bisect_time[3],3), " seconds whereas the Newton method required only ", round(newton_time[3],3), " seconds. After removing the data that yielded NA for the Newton method, each method yielded a mean implied volatility of ", round(mean(SPY_IV_out2[!is.na(SPY_IV_out2)])*100,2), "%", sep = ""))
+
+```
+
+
+## 8. Summary Table of Implied Volatility for Each Option Type, Maturity, and Stock
+
+```{r}
+#aggregate(SPY_in[, 9],list(SPY_in$Exp), mean)
+AMZNCall1$C1 <- (AMZNCall1$Bid + AMZNCall1$Ask)/2
+AMZNCall1$S0 <- 2149.87
+AMZNCall1$T <- as.numeric(AMZNCall1$Exp - AMZNCall1$Date)/365
+AMZN_IV <- c()
+for (i in seq(1,nrow(AMZNCall1))) {
+  temp <- bisection(function(x) BSMprice(AMZNCall1$S0[i],AMZNCall1$Strike[i],AMZNCall1$T[i],r,x) - AMZNCall1$C1[i], 0, 2)
+  AMZN_IV <- c(AMZN_IV, temp)
+}
+AMZNCall1$IV <- AMZN_IV
+temp <- AMZNCall1[AMZNCall1$IV < 1.999, 1:13]
+AMZNCall1table <- aggregate(temp[,13], list(temp$Exp), mean)
+colnames(AMZNCall1table) <- c("Maturity", "Implied Vol (%)")
+AMZNCall1table$`Implied Vol` <- round(100*AMZNCall1table$`Implied Vol`,2)
+```
+
+```{r}
+#aggregate(SPY_in[, 9],list(SPY_in$Exp), mean)
+AMZNPut1$C1 <- (AMZNPut1$Bid + AMZNPut1$Ask)/2
+AMZNPut1$S0 <- 2149.87
+AMZNPut1$T <- as.numeric(AMZNPut1$Exp - AMZNPut1$Date)/365
+AMZN_IV <- c()
+for (i in seq(1,nrow(AMZNPut1))) {
+  temp <- bisection(function(x) BSMprice(AMZNPut1$S0[i],AMZNPut1$Strike[i],AMZNPut1$T[i],r,x,"p") - AMZNPut1$C1[i], 0, 2)
+  AMZN_IV <- c(AMZN_IV, temp)
+}
+AMZNPut1$IV <- AMZN_IV
+temp <- AMZNPut1[AMZNPut1$IV < 1.999, 1:13]
+AMZNPut1table <- aggregate(temp[,13], list(temp$Exp), mean)
+colnames(AMZNPut1table) <- c("Maturity", "Implied Vol (%)")
+AMZNPut1table$`Implied Vol` <- round(100*AMZNPut1table$`Implied Vol`,2)
+```
+
+```{r}
+SPYCall1$C1 <- (SPYCall1$Bid + SPYCall1$Ask)/2
+SPYCall1$S0 <- 337.06
+SPYCall1$T <- as.numeric(SPYCall1$Exp - SPYCall1$Date)/365
+SPY_IV <- c()
+for (i in seq(1,nrow(SPYCall1))) {
+  temp <- bisection(function(x) BSMprice(SPYCall1$S0[i],SPYCall1$Strike[i],SPYCall1$T[i],r,x) - SPYCall1$C1[i], 0, 2)
+  SPY_IV <- c(SPY_IV, temp)
+}
+SPYCall1$IV <- SPY_IV
+temp <- SPYCall1[SPYCall1$IV < 1.999, 1:13]
+SPYCall1table <- aggregate(temp[,13], list(temp$Exp), mean)
+colnames(SPYCall1table) <- c("Maturity", "Implied Vol (%)")
+SPYCall1table$`Implied Vol` <- round(100*SPYCall1table$`Implied Vol`,2)
+```
+
+
+### Average Volatilities
+
+```{r}
+mean_table <- data.frame(matrix(nrow = 3, ncol = 2))
+mean_table[1,1] <- round(mean(SPY_in[SPY_in$IV < 1.999,1:9]$IV)*100,2)
+mean_table[2,1] <- round(SPY_ATM*100, 2)
+mean_table[3,1] <- round(mean(SPY_out$IV)*100,2)
+mean_table[1,2] <- round(mean(AMZN_in[AMZN_in$IV < 1.9999, 9])*100,2)
+mean_table[2,2] <- round(AMZN_ATM*100, 2)
+mean_table[3,2] <- round(mean(AMZN_out$IV)*100,2)
+colnames(mean_table) <- c("SPY", "AMZN")
+rownames(mean_table) <- c("In-The-Money (%)", "At-The-Money (%)", "Out-Of-Money (%)")
+mean_table
+```
+
+Amazon clearly illustrates the volatility smirk with the out-of-money options having a far higher implied volatility than the at-the-money options and significantly greater than the in-the-money options as well. As I mentioned earlier the out-of-money calculation for the SPY seems to be off; however, the in-the-money calculation is more reasonable and the at-the-money implied volatility is close to the value of the VIX.
+
+```{r}
+print(paste("Amazon Calls Summary Table"))
+AMZNCall1table[,c(1,3)]
+```
+
+The implied volatility decreases as the maturity increases because the option has more time for the price of the underlying to reach the strike price in order for the option to become at or in the money. As I alluded to above the volatility smirk is evident with the data for Amazon where in the money options have a greater implied volatility than at the money options and the out of the money options yield the greatest implied volatility. The remaining tables for the other stocks and option types are included in the appendix.
+
+## 9. Put-Call Parity Calculations
+
+```{r}
+#P-C parity is C + Ke^-rT = S + P
+#SPYCall1$Put <- SPYCall1$C1 + SPYCall1$Strike*exp(-r*SPYCall1$T) - SPYCall1$S0
+#SPYPut1$Call <- SPYPut1$C1 + SPYPut1$S0 - SPYPut1$Strike*exp(-r*SPYPut1$T)
+
+#AMZNCall1$Put <- AMZNCall1$C1 + AMZNCall1$Strike*exp(-r*AMZNCall1$T) - AMZNCall1$S0
+#AMZNPut1$Call <- AMZNPut1$C1 + AMZNPut1$S0 - AMZNPut1$Strike*exp(-r*AMZNPut1$T)
+
+
+```
+
+
+## 10. Implied Volatility vs Strike Price
+
+```{r}
+temp1 <- AMZNCall1[AMZNCall1$Exp == as.Date("2020-02-14"), 1:13]
+temp2 <- AMZNCall1[AMZNCall1$Exp == as.Date("2020-02-21"), 1:13]
+temp3 <- AMZNCall1[AMZNCall1$Exp == as.Date("2020-02-28"), 1:13]
+plot(temp1$Strike, temp1$IV, xlab = "Strike", ylab = "Implied Volatility", main = "AMZN Call Strike vs Implied Volatility", ylim = c(0,1.5), xlim = c(1500, 3000))
+lines(temp2$Strike, temp2$IV, type = "p", col = c("green"))
+lines(temp3$Strike, temp3$IV, type = "p", col = c("blue"))
+legend(1500, 1.5,legend = c("2/14/2020", "2/21/2020", "2/28/2020"), col = c("black", "green", "blue"), lty=1:2, cex=0.8)
+```
+
+The general pattern of the volatility smirk can be seen although and it is interesting to see how the shape differs for each maturity. The SPY graphs are included in the appendix.
+
+
+## 11. Greeks
+
+```{r}
+theoretical_greeks <- function(S0,K,tau,r,sigma,type='c'){
+  N <- function(x){pnorm(x)}
+  d1 <- (1/(sigma*sqrt(tau)))*(log(S0/K)+(r+.5*sigma**2)*tau)
+  delta <- ifelse(type=='c',N(d1),N(d1)-1)
+  gamma <- 1/(S0*sigma*sqrt(tau))*exp(-d1^2/2)/(sqrt(2*pi))
+  vega <- S0*sqrt(tau)*exp(-d1^2/2)/sqrt(2*pi)
+  x = data.frame(Delta=delta,Gamma=gamma,Vega=vega)
+  return(x)
+}
+numerical_greeks <- function(S0,K,tau,r,sigma,type='c',e=10^-4){
+  delta <- (BSMprice(S0+e,K,tau,r,sigma)-BSMprice(S0-e,K,tau,r,sigma))/(2*e)
+  gamma <- (BSMprice(S0+e,K,tau,r,sigma)-2*BSMprice(S0,K,tau,r,sigma)+
+              BSMprice(S0-e,K,tau,r,sigma))/e^2
+  vega <- (BSMprice(S0,K,tau,r,sigma+e)-BSMprice(S0,K,tau,r,sigma-e))/(2*e)
+  x = data.frame(Delta=delta,Gamma=gamma,Vega=vega)
+  return(x)
+}
+numerical_greeks(100,100,1,0.05,0.3,'c')
+theoretical_greeks(100,100,1,0.05,0.3,'c')
+```
+
+```{r}
+num <- numerical_greeks(AMZNCall1$S0,AMZNCall1$Strike,AMZNCall1$T,r,AMZNCall1$IV)
+theo <- theoretical_greeks(AMZNCall1$S0,AMZNCall1$Strike,AMZNCall1$T,r,AMZNCall1$IV)
+num[80:90,1:3]
+theo[80:90,1:3]
+```
+
+The Gamma and Vega values are very similar for each method; however it seems that my delta calculation is off for the theoretical method causing the discrepency. The full table is featured in the appendix.
+
+
+
+# Part 2
+
+
+## 1. Trapezoidal and Simpson's Quadrature Rules for Approximation
+
+
+```{r}
+fx <- function(x){
+  fx <- ifelse(x==0,1,sin(x)/x)
+  return(fx)
+}
+simpson <- function(f,a,b,n){
+  h <- (b-a)/(n)
+  x <- seq(a,b,by=h)
+  y <- f(x)
+  s <- y[1]+y[n+1]+4*sum(y[seq(2,n,by=2)])+
+    2*sum(y[seq(3,n-1,by=2)])
+  s <- (h/3)*s
+  return(s)
+}
+trapezoidal <- function(f,a,b,n){
+  h <- (b-a)/n
+  x <- seq(a,b,by=h)
+  y <- f(x)
+  s <- (h/2)*(y[1]+2*sum(y[2:n])+y[n+1])
+  return(s)
+}
+trapezoidal(fx,-10^6,10^6,n=5000000)
+simpson(fx,-10^6,10^6,n=5000000)
+```
+
+
+## 2. Computing Truncation Errror
+
+
+```{r}
+calc_TE <- function(func,fx,a,N){
+  val <- func(fx,-a,a,N)
+  te <- val-pi
+  return(te)
+}
+#Fixing a
+par(mfrow=c(1,2))
+a <- 1e4
+N <- seq(100,1e4,by=35)
+TE_simp <- sapply(N,calc_TE,a=a,func=simpson,fx=fx)
+TE_trap <- sapply(N,calc_TE,a=a,func=trapezoidal,fx=fx)
+plot(N,TE_simp,type='l',col='blue',xlab='N',ylab = 'TE',
+     main = 'Truncation Error by N - Simpson')
+plot(N,TE_trap,type='l',col='red',xlab='N',ylab = 'TE',
+     main = 'Truncation Error by N - Trapezoid')
+#Fixing N
+N <- 1e4
+a <- seq(100,1e4,by=45)
+TE_simp <- sapply(a,calc_TE,N=N,func=simpson,fx=fx)
+TE_trap <- sapply(a,calc_TE,N=N,func=trapezoidal,fx=fx)
+plot(a,TE_simp,type='l',col='blue',xlab='a',ylab = 'TE',
+     main = 'Truncation Error by a - Simpson')
+plot(a,TE_trap,type='l',col='red',xlab='a',ylab = 'TE',
+     main = 'Truncation Error by a - Trapezoid')
+```
+
+From the first plots, we see that the Trapezoidal rule converges before the Simpson rule, though the errors for the Simpson rule appear to be lower for each N. We also see that as N increases, the Truncation Error approaches or equals zero, which is expected, as smaller partitions lead to increasingly miniscule error.
+
+Holding N constant, we see that the choice of a causes the Truncation Error to fluctuate around zero. As a increases, we see that the magnitude of these flucations become less signficant until the error seems to converge to zero. The Truncation Error by a plots appear identical between the two methods. It is clear that as the boundaries of integration increase, the approximation becomes more accurate.
+
+## 3. Evaluating Number of Steps Required to Converge
+
+```{r}
+steps <- function(f,fx,a,b,tol=10^-4){
+  n <- 5
+  error <-100
+  v1 <- f(fx,a,b,n-1)
+  while(error>tol){
+    v2 <- f(fx,a,b,n)
+    error <- abs(v2-v1)
+    v1 <- v2
+    n <- n+1
+  }
+  l <- list(value=v2,steps=n-5)
+  return(l)
+}
+print(paste("Trapezoidal:"))
+steps(trapezoidal,fx,-1e3,1e3)
+print(paste("Simpson:"))
+steps(simpson,fx,-1e3,1e3)
+```
+
+While the Simpson method is more accurate, it takes far more steps to reach that accuracy. Therein lies an important tradeoff between speed and accuracy.
+
+
+
+# Part 4
+
+
+## 1. Solving Integral for f1 and f2
+
+```{r}
+f1 <- function(x,y) {return(x*y)}
+f2 <- function(x,y) {return(exp(x+y))}
+
+print(paste("Anlytical Solution to f1"))
+integrate(function(y) { 
+   sapply(y, function(y) {
+     integrate(function(x) f1(x,y), 0, 3)$value
+   })
+ }, 0, 1)
+
+print(paste("Anlytical Solution to f2"))
+integrate(function(y) { 
+   sapply(y, function(y) {
+     integrate(function(x) f2(x,y), 0, 3)$value
+   })
+ }, 0, 1)
+```
+
+
+## 2. Numerical Solution
+
+```{r}
+deltaX <- 0.001
+deltaY <- 0.003
+x0 <- 0
+xn1 <- 1
+y0 <- 0
+ym1 <- 3
+
+x<- seq(x0,xn1,deltaX)
+y<- seq(y0,ym1,deltaY)
+s <- 0
+for(i in seq(1,length(x))-1){
+  s <- s + f1(x[i],y[i]) + f1(x[i],y[i+1]) + f1(x[i+1],y[i]) + f1(x[i+1],y[i+1]) + 2*(f1((x[i]+x[i+1])/2,y[i]) + f1((x[i]+x[i+1])/2,y[i+1]) + f1(x[i],(y[i] + y[i+1])/2) + f1(x[i+1],(y[i] + y[i+1])/2)) + 4*f1((x[i] + x[i+1])/2, (y[i]+y[i+1])/2)
+}
+s*deltaX*deltaY/16
+```
+
+
+
+# Appendix
+
+```{r}
+print(paste("Amazon Calls Summary Table"))
+AMZNCall1table[,c(1,3)]
+
+print(paste("Amazon Puts Summary Table"))
+AMZNPut1table[,c(1,3)]
+
+print(paste("SPY Calls Summary Table"))
+SPYCall1table
+
+```
+
+```{r}
+temp1 <- SPYCall1[SPYCall1$Exp == as.Date("2020-03-06"), 1:13]
+temp2 <- SPYCall1[SPYCall1$Exp == as.Date("2020-02-21"), 1:13]
+temp3 <- SPYCall1[SPYCall1$Exp == as.Date("2020-02-28"), 1:13]
+plot(temp2$Strike, temp2$IV, xlab = "Strike", ylab = "Implied Volatility", main = "SPY Call Strike vs Implied Volatility", xlim = c(270, 360), ylim = c(0,1.5))
+lines(temp3$Strike, temp3$IV, type = "p", col = c("green"))
+lines(temp1$Strike, temp1$IV, type = "p", col = c("blue"))
+legend(280, 1.5,legend = c("2/21/2020", "2/28/2020", "3/6/2020"), col = c("black", "green", "blue"), lty=1:2, cex=0.8)
+```
+
+
+```{r}
+num
+```
+
+```{r}
+theo
+```
+
